@@ -33,15 +33,32 @@ class CalibratedCamera:
         self.workingAreaSize = self.calibrator.area
         self.minMarkers = 4
         self.name = name
+        self.borderColor = (255, 0, 0)
     def displayCalibrationWindow(self) -> None:
         cv.namedWindow("camera", cv.WINDOW_NORMAL)
         cv.createTrackbar("brightness", "camera", 0, 255, lambda x: self.camera.set(cv.CAP_PROP_BRIGHTNESS, x))
     
     def display(self) -> None:
         ret, frame = self.camera.read()
+        if self.calibrated:
+            frame = self.applyBorder(frame, self.borderColor)
         if not ret:
             return
         cv.imshow("camera", frame)
+    def applyBorder(self, frame, color, thickness=15):
+        borderImage = np.zeros((self.workingAreaSize[1], self.workingAreaSize[0], 3), dtype=np.uint8)
+        cv.rectangle(borderImage, (0, 0), (self.workingAreaSize[0], self.workingAreaSize[1]), color, thickness)
+        if self.calibrated:
+            borderImage = cv.warpPerspective(borderImage, self.H, (frame.shape[1], frame.shape[0]), flags=cv.WARP_INVERSE_MAP)
+        else:
+            borderImage = cv.resize(borderImage, (frame.shape[1], frame.shape[0]))
+        mask = cv.cvtColor(borderImage, cv.COLOR_BGR2GRAY)
+        mask = cv.threshold(mask, 2, 255, cv.THRESH_BINARY)[1]
+        mask = cv.bitwise_not(mask)
+        frame = cv.bitwise_and(frame, frame, mask=mask)
+        frame = cv.bitwise_or(frame, borderImage)
+        return frame
+        
     def tryCalibration(self) -> bool:
         self.calibrator.display()
         ret, frame = self.camera.read()
@@ -54,6 +71,7 @@ class CalibratedCamera:
             self.H, _ = cv.findHomography(corners, usableCorners)
             self.calibrated = True
             return True
+        self.calibrated = False
         return False
     
     """If the camera is calibrated, returns the transformed image, otherwise returns the raw image."""
@@ -72,17 +90,18 @@ def projectorboard():
     camID = "/dev/video2"
     calibrator = CalibrationBoard()
     camera = CalibratedCamera(calibrator)
-    camera.minMarkers = 8
+    camera.minMarkers = 5
     camera.camera.open(camID)
+    camera.borderColor = (0, 0, 255)
     camera.displayCalibrationWindow()
     while True:
         camera.display()
-        camera.calibrator.display()
+        camera.tryCalibration()
         key = cv.waitKey(1)
         if key == ord('q'):
             break
-        if key == ord('c'):
-            if camera.tryCalibration():
+        elif key == ord('c'):
+            if camera.calibrated:
                 break
     cv.destroyWindow(camera.name)
     while True:
@@ -93,7 +112,8 @@ def projectorboard():
         camera.display()
         if cv.waitKey(1) == ord('q'):
             break
-
+    cv.destroyAllWindows()
+    camera.camera.release()
 
 if __name__ == "__main__":
     projectorboard()
