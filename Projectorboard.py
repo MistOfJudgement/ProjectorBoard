@@ -4,6 +4,8 @@ import numpy as np
 
 def sortUsingIds(ids, corners):
     ids, corners = zip(*sorted(zip(ids, corners), key=lambda x: x[0]))
+    ids = np.array(ids)
+    corners = np.array(corners)
     return ids, corners
 class CalibrationBoard:
     def __init__(self, name="calibration") -> None:
@@ -16,6 +18,8 @@ class CalibrationBoard:
         self.destIds, self.destCorners = sortUsingIds(self.destIds, self.destCorners)
         # self.destMarkerIds, self.destMarkers = sortUsingIds(self.destMarkerIds, self.destMarkers)
         cv.namedWindow(name, cv.WINDOW_NORMAL)
+    def getMatchingCorners(self, ids):
+        return np.asarray([c for i, c in zip(self.destIds, self.destCorners) if i in ids])
     def display(self) -> None:
         cv.imshow(self.name, self.calibrationImage)
 """The CalibratedCamera is responsible for calibrating the camera and keeping calibrated, along with returning the transformed image."""
@@ -46,7 +50,8 @@ class CalibratedCamera:
         corners, ids, markers, markerIds = self.calibrator.detector.detectBoard(frame)
         if ids is not None and len(ids) > self.minMarkers:
             ids, corners = sortUsingIds(ids, corners)
-            self.H, _ = cv.findHomography(corners, self.destCorners)
+            usableCorners = self.calibrator.getMatchingCorners(ids)
+            self.H, _ = cv.findHomography(corners, usableCorners)
             self.calibrated = True
             return True
         return False
@@ -64,13 +69,15 @@ class CalibratedCamera:
 
         
 def projectorboard():
-    camID = 0
+    camID = "/dev/video2"
     calibrator = CalibrationBoard()
     camera = CalibratedCamera(calibrator)
+    camera.minMarkers = 8
     camera.camera.open(camID)
     camera.displayCalibrationWindow()
     while True:
         camera.display()
+        camera.calibrator.display()
         key = cv.waitKey(1)
         if key == ord('q'):
             break
@@ -82,7 +89,8 @@ def projectorboard():
         frame = camera.read()
         if frame is None:
             break
-        cv.imshow(camera.name, frame)
+        cv.imshow(calibrator.name, frame)
+        camera.display()
         if cv.waitKey(1) == ord('q'):
             break
 
